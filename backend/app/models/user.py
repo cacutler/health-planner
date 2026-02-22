@@ -1,6 +1,7 @@
 import uuid
 from sqlalchemy import Column, String, Integer, DateTime, Enum
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
 import enum
@@ -23,3 +24,6 @@ class User(Base):
     sex = Column(Enum(SexType))
     activity__level = Column(Enum(ActivityLevel))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    workouts = relationship("Workout", back_populates="user", cascade="all, delete-orphan")
+    nutrition_logs = relationship("NutritionLog", back_populates="user", cascade="all, delete-orphan")
+    weight_logs = relationship("WeightLog", back_populates="user", cascade="all, delete-orphan")
