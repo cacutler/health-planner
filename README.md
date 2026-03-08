@@ -35,6 +35,8 @@ This is a calorie/fitness tracking and workout planning project built with FastA
 **User:**
 
 - ID
+- Email
+- Password
 - Height in inches
 - Weight in pounds
 - Birthdate for age calculation
