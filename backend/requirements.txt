@@ -6,7 +6,7 @@ alembic
 pydantic>=2
 pydantic[email]
 python-jose[cryptography]
-passlib[bcrypt]
+bcrypt
 python-dotenv
 greenlet
 python-multipart

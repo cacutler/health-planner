@@ -1,15 +1,14 @@
 from datetime import datetime, timedelta, UTC
 from jose import jwt, JWTError
-from passlib.context import CryptContext
+import bcrypt
 import os
 SECRET_KEY = os.getenv("SECRET_KET", "dev-secret")
 ALGORITHM = "HS256"
 ACCESS_TOEKN_EXPIRE_MINUTES = 30
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 def verify_password(password: str, hashed: str) -> bool:
-    return pwd_context.verify(password, hashed)
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOEKN_EXPIRE_MINUTES)
