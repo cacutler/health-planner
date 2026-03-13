@@ -15,21 +15,6 @@ This is a calorie/fitness tracking and workout planning project built with FastA
 - Apple/Google Health integration
 - Premium mobile features like progress rings
 
-## Specifications
-
-**Flutter Frontend**
-
-- Riverpod for state management
-- Dio for HTTP client
-- Freezed for immutable models
-- Go Router for navigation
-- SQLflite or Drift for local persistance
-
-**Backend and Database**
-
-- FastAPI for backend server
-- PostgreSQL for database
-
 ## Database Models
 
 **User:**
