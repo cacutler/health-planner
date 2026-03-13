@@ -1,79 +1,275 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../core/theme.dart';
+import '../models/workout.dart';
+import '../models/user.dart';
+import '../models/nutrition_log.dart';
+import '../models/weight_log.dart';
+
+class ApiException implements Exception {
+  final int statusCode;
+  final String message;
+  ApiException(this.statusCode, this.message);
+
+  @override
+  String toString() => message;
+}
 
 class ApiService {
-  static const String baseUrl = 'http://localhost:8080';
+  static final ApiService _instance = ApiService._internal();
+  factory ApiService() => _instance;
+  ApiService._internal();
+
+  final String _base = AppConstants.baseUrl;
   final _storage = const FlutterSecureStorage();
-  Future<String?> getToken() => _storage.read(key: 'jwt_totken');
-  Future<void> saveToken(String token) =>
+
+  // ── Token management ──────────────────────────────────────────────────────
+
+  Future<String?> getToken() => _storage.read(key: 'jwt_token');
+
+  Future<void> _saveToken(String token) =>
       _storage.write(key: 'jwt_token', value: token);
+
   Future<void> clearToken() => _storage.delete(key: 'jwt_token');
-  Future<Map<String, String>> _authHeaders() async {
-    final token = await getToken();
-    return {
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
-  }
 
-  Future<bool> login(String email, String password) async {
-    final res = await http.post(
-      Uri.parse('$baseUrl/auth/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': password}),
-    );
-    if (res.statusCode == 200) {
-      final token = jsonDecode(res.body)['access_token'];
-      await saveToken(token);
-      return true;
+  Future<Map<String, String>> _headers({bool auth = true}) async {
+    final h = {'Content-Type': 'application/json'};
+    if (auth) {
+      final token = await getToken();
+      if (token != null) h['Authorization'] = 'Bearer $token';
     }
-    return false;
+    return h;
   }
 
-  Future<bool> register(String email, String password) async {
+  // ── Error handling ────────────────────────────────────────────────────────
+
+  void _checkStatus(http.Response res) {
+    if (res.statusCode >= 200 && res.statusCode < 300) return;
+    String msg = 'Request failed (${res.statusCode})';
+    try {
+      final body = jsonDecode(res.body);
+      msg = body['detail'] ?? msg;
+    } catch (_) {}
+    throw ApiException(res.statusCode, msg);
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
+  /// Registers a new user. Backend: POST /auth/register
+  Future<UserModel> register({
+    required String email,
+    required String password,
+    int? heightIn,
+    int? weightLbs,
+    int? age,
+    String? sex,
+    String? activityLevel,
+  }) async {
     final res = await http.post(
-      Uri.parse('$baseUrl/auth/register'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'password': password}),
+      Uri.parse('$_base/auth/register'),
+      headers: await _headers(auth: false),
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+        if (heightIn != null) 'height_in': heightIn,
+        if (weightLbs != null) 'weight_lbs': weightLbs,
+        if (age != null) 'age': age,
+        if (sex != null) 'sex': sex,
+        if (activityLevel != null) 'activity_level': activityLevel,
+      }),
     );
-    return res.statusCode == 201;
+    _checkStatus(res);
+    return UserModel.fromJson(jsonDecode(res.body));
   }
 
-  Future<List<dynamic>> getWorkouts() async {
+  /// Logs in user. Backend uses OAuth2 form format: POST /auth/token
+  Future<void> login(String email, String password) async {
+    // OAuth2PasswordRequestForm expects application/x-www-form-urlencoded
+    final res = await http.post(
+      Uri.parse('$_base/auth/token'),
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: {'username': email, 'password': password},
+    );
+    _checkStatus(res);
+    final data = jsonDecode(res.body);
+    await _saveToken(data['access_token']);
+  }
+
+  // ── Users ─────────────────────────────────────────────────────────────────
+
+  /// GET /users/me
+  Future<UserModel> getMe() async {
     final res = await http.get(
-      Uri.parse('$baseUrl/workouts'),
-      headers: await _authHeaders(),
+      Uri.parse('$_base/users/me'),
+      headers: await _headers(),
     );
-    if (res.statusCode == 200) return jsonDecode(res.body);
-    throw Exception('Failed to load workouts');
+    _checkStatus(res);
+    return UserModel.fromJson(jsonDecode(res.body));
   }
 
-  Future<Map<String, dynamic>> createWorkout(Map<String, dynamic> data) async {
-    final res = await http.post(
-      Uri.parse('$baseUrl/workouts'),
-      headers: await _authHeaders(),
+  /// PATCH /users/me
+  Future<UserModel> updateMe(Map<String, dynamic> data) async {
+    final res = await http.patch(
+      Uri.parse('$_base/users/me'),
+      headers: await _headers(),
       body: jsonEncode(data),
     );
-    if (res.statusCode == 201) return jsonDecode(res.body);
-    throw Exception('Failed to create workout');
+    _checkStatus(res);
+    return UserModel.fromJson(jsonDecode(res.body));
   }
 
-  Future<List<dynamic>> getNutritionLogs() async {
+  // ── Workouts ──────────────────────────────────────────────────────────────
+
+  /// GET /workouts
+  Future<List<WorkoutModel>> getWorkouts() async {
     final res = await http.get(
-      Uri.parse('$baseUrl/nutrition'),
-      headers: await _authHeaders(),
+      Uri.parse('$_base/workouts'),
+      headers: await _headers(),
     );
-    if (res.statusCode == 200) return jsonDecode(res.body);
-    throw Exception('Failed to load nutrition logs');
+    _checkStatus(res);
+    return (jsonDecode(res.body) as List)
+        .map((e) => WorkoutModel.fromJson(e))
+        .toList();
   }
 
-  Future<List<dynamic>> getWeightLogs() async {
-    final res = await http.get(
-      Uri.parse('$baseUrl/weight'),
-      headers: await _authHeaders(),
+  /// POST /workouts
+  Future<WorkoutModel> createWorkout({
+    required String type,
+    required int durationMinutes,
+    required String intensity,
+    required DateTime performedAt,
+    int? caloriesBurned,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$_base/workouts'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'type': type,
+        'duration_minutes': durationMinutes,
+        'intensity': intensity,
+        'performed_at': performedAt.toIso8601String(),
+        if (caloriesBurned != null) 'calories_burned': caloriesBurned,
+      }),
     );
-    if (res.statusCode == 200) return jsonDecode(res.body);
-    throw Exception('Failed to load weight logs');
+    _checkStatus(res);
+    return WorkoutModel.fromJson(jsonDecode(res.body));
+  }
+
+  /// DELETE /workouts/{id}
+  Future<void> deleteWorkout(String workoutId) async {
+    final res = await http.delete(
+      Uri.parse('$_base/workouts/$workoutId'),
+      headers: await _headers(),
+    );
+    _checkStatus(res);
+  }
+
+  // ── Exercises ─────────────────────────────────────────────────────────────
+
+  /// POST /workouts/{workout_id}/exercises
+  Future<ExerciseModel> addExercise(
+    String workoutId,
+    Map<String, dynamic> data,
+  ) async {
+    final res = await http.post(
+      Uri.parse('$_base/workouts/$workoutId/exercises'),
+      headers: await _headers(),
+      body: jsonEncode(data),
+    );
+    _checkStatus(res);
+    return ExerciseModel.fromJson(jsonDecode(res.body));
+  }
+
+  /// DELETE /workouts/{workout_id}/exercises/{exercise_id}
+  Future<void> deleteExercise(String workoutId, String exerciseId) async {
+    final res = await http.delete(
+      Uri.parse('$_base/workouts/$workoutId/exercises/$exerciseId'),
+      headers: await _headers(),
+    );
+    _checkStatus(res);
+  }
+
+  // ── Nutrition ─────────────────────────────────────────────────────────────
+
+  /// GET /nutrition
+  Future<List<NutritionModel>> getNutritionLogs() async {
+    final res = await http.get(
+      Uri.parse('$_base/nutrition'),
+      headers: await _headers(),
+    );
+    _checkStatus(res);
+    return (jsonDecode(res.body) as List)
+        .map((e) => NutritionModel.fromJson(e))
+        .toList();
+  }
+
+  /// POST /nutrition
+  Future<NutritionModel> logNutrition({
+    required int calories,
+    required DateTime loggedAt,
+    double? proteinG,
+    double? carbsG,
+    double? fatG,
+  }) async {
+    final res = await http.post(
+      Uri.parse('$_base/nutrition'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'calories': calories,
+        'logged_at': loggedAt.toIso8601String(),
+        if (proteinG != null) 'protein_g': proteinG,
+        if (carbsG != null) 'carbs_g': carbsG,
+        if (fatG != null) 'fat_g': fatG,
+      }),
+    );
+    _checkStatus(res);
+    return NutritionModel.fromJson(jsonDecode(res.body));
+  }
+
+  /// DELETE /nutrition/{id}
+  Future<void> deleteNutritionLog(String logId) async {
+    final res = await http.delete(
+      Uri.parse('$_base/nutrition/$logId'),
+      headers: await _headers(),
+    );
+    _checkStatus(res);
+  }
+
+  // ── Weight ────────────────────────────────────────────────────────────────
+
+  /// GET /weight
+  Future<List<WeightLogModel>> getWeightLogs() async {
+    final res = await http.get(
+      Uri.parse('$_base/weight'),
+      headers: await _headers(),
+    );
+    _checkStatus(res);
+    return (jsonDecode(res.body) as List)
+        .map((e) => WeightLogModel.fromJson(e))
+        .toList();
+  }
+
+  /// POST /weight
+  Future<WeightLogModel> logWeight(double weightLbs, DateTime loggedAt) async {
+    final res = await http.post(
+      Uri.parse('$_base/weight'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'weight_lbs': weightLbs,
+        'logged_at': loggedAt.toIso8601String(),
+      }),
+    );
+    _checkStatus(res);
+    return WeightLogModel.fromJson(jsonDecode(res.body));
+  }
+
+  /// DELETE /weight/{id}
+  Future<void> deleteWeightLog(String logId) async {
+    final res = await http.delete(
+      Uri.parse('$_base/weight/$logId'),
+      headers: await _headers(),
+    );
+    _checkStatus(res);
   }
 }
