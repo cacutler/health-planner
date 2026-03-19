@@ -1,6 +1,8 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, users, workouts, exercises, nutrition, weight
 app = FastAPI(title="Health Planner API", description="Track workouts, nutrition, and weight with JWT authentication.", version="1.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=["*"], allow_headers=["*"])
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(workouts.router)
