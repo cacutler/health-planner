@@ -10,5 +10,5 @@ app.include_router(exercises.router)
 app.include_router(nutrition.router)
 app.include_router(weight.router)
 @app.get("/health")
-async def health_check():
+async def health_check() -> dict[str, str]:
     return {"status": "ok"}
